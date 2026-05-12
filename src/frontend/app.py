@@ -91,8 +91,7 @@ def app():
             file_name='predictions.json',
             mime='application/json'
         )
-
-        st.markdown("""###### For more information about the project, refer to the [github project repo](https://github.com/gersongerardcruz/network_intrusion_detection) where I documented the entire process in-depth.""")
+        
 # Run the Streamlit app
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

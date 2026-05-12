@@ -34,33 +34,63 @@ runs_df = mlflow.search_runs(
 )
 
 # Extract the run_id and experiment_id of the top run
-run_id = runs_df.iloc[0]["run_id"]
-experiment_id = runs_df.iloc[0]["experiment_id"]
+best_model = None
+best_model_uri = None
 
-# Get the run object to extract artifact info
-artifacts = client.list_artifacts(run_id, path="")
-
-# Find the H2O model artifact (will have descriptive names like GBM_*, AutoML_*, etc.)
-model_artifact = None
-for artifact in artifacts:
-    if artifact.is_dir:
-        model_artifact = artifact.path
-        break
-
-# Construct the direct filesystem path to the model
-import os
-model_dir = f"mlruns/{experiment_id}/{run_id}/artifacts/{model_artifact}" if model_artifact else f"mlruns/{experiment_id}/{run_id}/artifacts/"
-
-# Load best model directly from filesystem using h2o
+# First, try to load the most recent model from the H2O models directory
+models_dir = os.path.join(os.path.dirname(__file__), "..", "..", "h2o_automl_models")
 try:
-    best_model = h2o.load_model(model_dir)
-    best_model_uri = model_dir
+    # List all model files and get the most recent one
+    if os.path.exists(models_dir):
+        model_files = [f for f in os.listdir(models_dir) if os.path.isfile(os.path.join(models_dir, f))]
+        if model_files:
+            # Sort to get the most recent model (assuming naming convention)
+            latest_model = sorted(model_files)[-1]
+            model_path = os.path.join(models_dir, latest_model)
+            print(f"Loading model from: {model_path}")
+            best_model = h2o.load_model(model_path)
+            best_model_uri = model_path
+            print(f"Successfully loaded model: {latest_model}")
 except Exception as e:
-    print(f"Error loading model from {model_dir}: {e}")
-    # Try alternative location
-    model_dir = "h2o_automl_models/GBM_4_AutoML_1_20260417_122515"
-    best_model = h2o.load_model(model_dir)
-    best_model_uri = model_dir
+    print(f"Error loading model from h2o_automl_models: {e}")
+
+# If no model found in h2o_automl_models, try MLflow
+if best_model is None and not runs_df.empty:
+    print("Attempting to load from MLflow...")
+    run_id = runs_df.iloc[0]["run_id"]
+    experiment_id = runs_df.iloc[0]["experiment_id"]
+
+    # Get the run object to extract artifact info
+    artifacts = client.list_artifacts(run_id, path="")
+
+    # Find the H2O model artifact (will have descriptive names like GBM_*, AutoML_*, etc.)
+    model_artifact = None
+    for artifact in artifacts:
+        if artifact.is_dir:
+            model_artifact = artifact.path
+            break
+
+    # Construct the absolute filesystem path to the model
+    mlruns_base = os.path.join(os.path.dirname(__file__), "..", "..", "mlruns")
+    if model_artifact:
+        model_dir = os.path.join(mlruns_base, str(experiment_id), run_id, "artifacts", model_artifact)
+    else:
+        model_dir = os.path.join(mlruns_base, str(experiment_id), run_id, "artifacts")
+    
+    # Normalize path for Windows compatibility
+    model_dir = os.path.normpath(model_dir)
+
+    # Load best model directly from filesystem using h2o
+    try:
+        print(f"Attempting to load model from: {model_dir}")
+        best_model = h2o.load_model(model_dir)
+        best_model_uri = model_dir
+        print(f"Successfully loaded model from: {model_dir}")
+    except Exception as e:
+        print(f"Error loading model from {model_dir}: {e}")
+
+if best_model is None:
+    print("WARNING: Model not found. Train a model first using: python src/backend/train.py")
 
 # Create a FastAPI app
 app = FastAPI()
@@ -68,6 +98,12 @@ app = FastAPI()
 # Define the endpoint for prediction
 @app.post("/predict")
 async def predict(file: bytes = File(...)):
+    
+    if best_model is None:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Model not loaded. Please train the model first using: python src/backend/train.py"}
+        )
 
     # Read the uploaded CSV file in bytes format and convert to pandas dataframe
     data = io.BytesIO(file)
@@ -86,3 +122,7 @@ async def predict(file: bytes = File(...)):
     # Convert predictions to json file
     json_compatible_item_data = jsonable_encoder(preds)
     return JSONResponse(content=json_compatible_item_data)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

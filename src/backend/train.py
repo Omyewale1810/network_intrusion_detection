@@ -11,6 +11,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from utils import *
 
+# Define the project root directory
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+REFERENCES_DIR = os.path.join(PROJECT_ROOT, 'references')
+MODELS_DIR = os.path.join(PROJECT_ROOT, 'h2o_automl_models')
+
 def main():
 
     # Set up an H2O cluster
@@ -59,10 +64,11 @@ def main():
         
         # Log the AutoML leaderboard to MLflow and save it as a CSV file
         leaderboard = automl.leaderboard.as_data_frame()
-        leaderboard.to_csv('references/leaderboard.csv', index=False)
+        leaderboard_path = os.path.join(REFERENCES_DIR, 'leaderboard.csv')
+        leaderboard.to_csv(leaderboard_path, index=False)
         mlflow.log_param('max_models', max_models)
         mlflow.log_metric('auc', leaderboard['auc'][0])
-        mlflow.log_artifact('references/leaderboard.csv')
+        mlflow.log_artifact(leaderboard_path)
 
         # Print the leaderboard
         print(leaderboard)
@@ -72,7 +78,7 @@ def main():
         best_model = h2o.get_model(best_model_id)
 
         # Save the H2O model to disk
-        model_path = h2o.save_model(best_model, path='./h2o_automl_models', force=True)
+        model_path = h2o.save_model(best_model, path=MODELS_DIR, force=True)
 
         # Log the H2O model artifact to MLflow
         client.log_artifact(run_id, model_path)
@@ -80,13 +86,14 @@ def main():
 
         # Get the cross-validation metrics summary table for the best model and save as csv
         cv_summary = best_model.cross_validation_metrics_summary().as_data_frame()
-        cv_summary.to_csv("references/cv_summary.csv")
+        cv_summary_path = os.path.join(REFERENCES_DIR, 'cv_summary.csv')
+        cv_summary.to_csv(cv_summary_path)
         
         # Log the CV Summary table 
-        mlflow.log_artifact('references/cv_summary.csv')
+        mlflow.log_artifact(cv_summary_path)
 
-        leaderboard_uri = mlflow.get_artifact_uri("references/leaderboard.csv")
-        cv_summary_uri = mlflow.get_artifact_uri("references/cv_summary.csv")
+        leaderboard_uri = mlflow.get_artifact_uri(os.path.basename(leaderboard_path))
+        cv_summary_uri = mlflow.get_artifact_uri(os.path.basename(cv_summary_path))
         best_model_uri = mlflow.get_artifact_uri("h2o_automl_model")
 
         print(f"The leaderboard is located at: {leaderboard_uri}")
@@ -109,10 +116,10 @@ def main():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--experiment_name", type=str, help="Name of the mlflow experiment")
-    parser.add_argument("--max_models", type=int, help="Number of max models to train")
-    parser.add_argument("--target_column", type=str, help="Name of target column")
-    parser.add_argument("--train_data", help="path to train data file")
+    parser.add_argument("--experiment_name", type=str, default="network_intrusion", help="Name of the mlflow experiment")
+    parser.add_argument("--max_models", type=int, default=10, help="Number of max models to train")
+    parser.add_argument("--target_column", type=str, default="class", help="Name of target column")
+    parser.add_argument("--train_data", type=str, default="../../data/processed/train.csv", help="path to train data file")
     args = parser.parse_args()
 
     main()
