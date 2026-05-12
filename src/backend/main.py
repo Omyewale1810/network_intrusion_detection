@@ -111,7 +111,8 @@ async def predict(file: bytes = File(...)):
     test_df = remove_id_column(test_df)
     test_df = h2o.H2OFrame(test_df)
 
-    test_df = match_test_set_types(test_df, "references/train_processed_column_types.json")
+    json_path = os.path.join(os.path.dirname(__file__), "..", "..", "references", "train_processed_column_types.json")
+    test_df = match_test_set_types(test_df, json_path)
 
     print(test_df)
 
